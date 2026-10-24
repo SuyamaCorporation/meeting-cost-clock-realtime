@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Real-time Meeting Cost Clock Calculator</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 min-h-screen p-4">
+  <div class="max-w-2xl mx-auto">
+    <header class="mb-5">
+      <h1 class="text-2xl font-bold text-gray-800">Meeting Cost Clock</h1>
+      <p class="text-gray-500 text-sm mt-1">Real-time cost tracker for meetings with agenda item breakdown</p>
+    </header>
+
+    <section class="bg-white rounded-xl shadow p-5 mb-4" aria-label="Meeting setup">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          <label for="attendees" class="block text-sm font-medium text-gray-700 mb-1">Attendees</label>
+          <input id="attendees" type="number" min="1" value="5"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-rose-400"
+            aria-label="Number of attendees" />
+        </div>
+        <div>
+          <label for="hourly" class="block text-sm font-medium text-gray-700 mb-1">Avg Hourly Rate ($/hr)</label>
+          <input id="hourly" type="number" min="1" value="75"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-rose-400"
+            aria-label="Average hourly salary in dollars" />
+        </div>
+      </div>
+      <div class="mt-3 bg-rose-50 rounded-lg p-3 flex justify-between text-sm">
+        <span class="text-gray-500">Burn rate:</span>
+        <span id="burn-rate" class="font-bold text-rose-700"></span>
+      </div>
+    </section>
+
+    <!-- Timer display -->
+    <section class="bg-white rounded-xl shadow p-5 mb-4" aria-live="polite" aria-label="Meeting timer">
+      <div class="grid grid-cols-2 gap-4 mb-4 text-center">
+        <div class="bg-gray-50 rounded-lg p-4">
+          <div class="text-xs text-gray-500 uppercase tracking-wide mb-1">Elapsed Time</div>
+          <div id="elapsed" class="text-4xl font-bold text-gray-800 font-mono">00:00:00</div>
+        </div>
+        <div class="bg-rose-50 rounded-lg p-4">
+          <div class="text-xs text-gray-500 uppercase tracking-wide mb-1">Total Cost</div>
+          <div id="total-cost" class="text-4xl font-bold text-rose-700 font-mono">$0.00</div>
+        </div>
+      </div>
+      <div class="flex gap-3 justify-center">
+        <button id="start-btn" onclick="toggleTimer()"
+          class="flex-1 bg-rose-600 hover:bg-rose-700 text-white font-semibold py-3 rounded-xl transition text-lg"
+          aria-label="Start or stop meeting timer">
+          ▶ Start
+        </button>
+        <button onclick="resetTimer()"
+          class="px-5 bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold py-3 rounded-xl transition"
+          aria-label="Reset meeting timer">
+          Reset
+        </button>
+      </div>
+    </section>
+
+    <!-- Agenda items -->
+    <section class="bg-white rounded-xl shadow p-5">
+      <h2 class="text-base font-semibold text-gray-700 mb-3">Agenda Items</h2>
+      <div class="flex gap-2 mb-3">
+        <input id="agenda-title" type="text" placeholder="Item title..."
+          class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-rose-400"
+          aria-label="Agenda item title" />
+        <input id="agenda-mins" type="number" min="1" value="10" placeholder="min"
+          class="w-20 border border-gray-300 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-rose-400"
+          aria-label="Estimated minutes for agenda item" />
+        <button onclick="addAgendaItem()"
+          class="bg-rose-600 hover:bg-rose-700 text-white text-sm px-3 py-2 rounded-lg transition"
+          aria-label="Add agenda item">Add</button>
+      </div>
+      <div id="agenda-list" class="space-y-2" role="list"></div>
+    </section>
+  </div>
+
+  <script>
+    let running = false;
+    let startTime = 0;
+    let elapsed = 0;   // ms
+    let intervalId = null;
+    let agendaItems = [];
+    let currentAgendaIdx = -1;
+    let agendaStartTime = 0;
+
+    function getBurnRate() {
+      const att = parseFloat(document.getElementById("attendees").value) || 1;
+      const hr  = parseFloat(document.getElementById("hourly").value) || 0;
+      return (att * hr) / 60; // $ per minute
+    }
+
+    function updateBurnRateDisplay() {
+      const bpm = getBurnRate();
+      document.getElementById("burn-rate").textContent = `$${bpm.toFixed(2)}/min · $${(bpm*60).toFixed(2)}/hr`;
+    }
+
+    document.getElementById("attendees").addEventListener("input", updateBurnRateDisplay);
+    document.getElementById("hourly").addEventListener("input", updateBurnRateDisplay);
+
+    function toggleTimer() {
+      if (!running) {
+        startTime = Date.now() - elapsed;
+        intervalId = setInterval(tick, 100);
+        running = true;
+        document.getElementById("start-btn").textContent = "⏸ Pause";
+        document.getElementById("start-btn").classList.replace("bg-rose-600","bg-yellow-500");
+        document.getElementById("start-btn").classList.replace("hover:bg-rose-700","hover:bg-yellow-600");
+        if (currentAgendaIdx >= 0 && agendaStartTime === 0) agendaStartTime = Date.now();
+      } else {
+        clearInterval(intervalId);
+        elapsed = Date.now() - startTime;
+        running = false;
+        document.getElementById("start-btn").textContent = "▶ Resume";
+        document.getElementById("start-btn").classList.replace("bg-yellow-500","bg-rose-600");
+        document.getElementById("start-btn").classList.replace("hover:bg-yellow-600","hover:bg-rose-700");
+      }
+    }
+
+    function tick() {
+      elapsed = Date.now() - startTime;
+      const totalSec = Math.floor(elapsed / 1000);
+      const h = Math.floor(totalSec / 3600).toString().padStart(2,"0");
+      const m = Math.floor((totalSec % 3600) / 60).toString().padStart(2,"0");
+      const s = (totalSec % 60).toString().padStart(2,"0");
+      document.getElementById("elapsed").textContent = `${h}:${m}:${s}`;
+      const cost = (elapsed / 1000 / 60) * getBurnRate();
+      document.getElementById("total-cost").textContent = "$" + cost.toFixed(2);
+      // Update current agenda item elapsed
+      if (currentAgendaIdx >= 0 && agendaStartTime > 0) {
+        const agendaSec = Math.floor((Date.now() - agendaStartTime) / 1000);
+        const el = document.getElementById(`agenda-elapsed-${currentAgendaIdx}`);
+        if (el) {
+          const m2 = Math.floor(agendaSec / 60), s2 = agendaSec % 60;
+          el.textContent = `${m2}:${s2.toString().padStart(2,"0")}`;
+          const agendaCost = (agendaSec / 60) * getBurnRate();
+          const ce = document.getElementById(`agenda-cost-${currentAgendaIdx}`);
+          if (ce) ce.textContent = "$" + agendaCost.toFixed(2);
+        }
+      }
+    }
+
+    function resetTimer() {
+      clearInterval(intervalId);
+      running = false;
+      elapsed = 0;
+      currentAgendaIdx = -1;
+      agendaStartTime = 0;
+      document.getElementById("elapsed").textContent = "00:00:00";
+      document.getElementById("total-cost").textContent = "$0.00";
+      document.getElementById("start-btn").textContent = "▶ Start";
+      document.getElementById("start-btn").className = "flex-1 bg-rose-600 hover:bg-rose-700 text-white font-semibold py-3 rounded-xl transition text-lg";
+      agendaItems.forEach(i => { i.actualSec = 0; i.done = false; });
+      renderAgenda();
+    }
+
+    function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+    function addAgendaItem() {
+      const title = document.getElementById("agenda-title").value.trim();
+      const mins  = parseInt(document.getElementById("agenda-mins").value) || 5;
+      if (!title) { alert("Enter an agenda item title."); return; }
+      agendaItems.push({ title, estMins: mins, actualSec: 0, done: false });
+      document.getElementById("agenda-title").value = "";
+      renderAgenda();
+    }
+
+    function tickAgendaItem(idx) {
+      if (currentAgendaIdx === idx) {
+        // Stop current
+        if (agendaStartTime > 0 && running) {
+          agendaItems[idx].actualSec += Math.floor((Date.now() - agendaStartTime) / 1000);
+        }
+        agendaItems[idx].done = true;
+        currentAgendaIdx = -1;
+        agendaStartTime = 0;
+      } else {
+        // Stop previous
+        if (currentAgendaIdx >= 0 && agendaStartTime > 0) {
+          agendaItems[currentAgendaIdx].actualSec += Math.floor((Date.now() - agendaStartTime) / 1000);
+          agendaItems[currentAgendaIdx].done = true;
+        }
+        currentAgendaIdx = idx;
+        agendaStartTime = running ? Date.now() : 0;
+        agendaItems[idx].done = false;
+      }
+      renderAgenda();
+    }
+
+    function renderAgenda() {
+      const list = document.getElementById("agenda-list");
+      list.innerHTML = "";
+      if (agendaItems.length === 0) {
+        list.innerHTML = `<p class="text-xs text-gray-400 italic text-center py-3">Add agenda items to track cost per topic</p>`;
+        return;
+      }
+      agendaItems.forEach((item, i) => {
+        const isActive = i === currentAgendaIdx;
+        const actualMin = Math.floor(item.actualSec / 60);
+        const actualS = item.actualSec % 60;
+        const cost = (item.actualSec / 60) * getBurnRate();
+        const overBudget = item.actualSec > item.estMins * 60;
+        const div = document.createElement("div");
+        div.setAttribute("role","listitem");
+        div.className = `flex items-center gap-3 p-3 rounded-lg border transition ${isActive ? "border-rose-300 bg-rose-50" : item.done ? "border-green-200 bg-green-50" : "border-gray-200 bg-gray-50"}`;
+        div.innerHTML = `
+          <button onclick="tickAgendaItem(${i})"
+            class="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold border-2 transition flex-shrink-0
+              ${isActive ? "border-rose-500 bg-rose-500 text-white" : item.done ? "border-green-500 bg-green-500 text-white" : "border-gray-300 bg-white text-gray-400 hover:border-rose-400"}"
+            aria-label="${isActive ? "Stop" : "Start"} agenda item ${esc(item.title)}">
+            ${isActive ? "⏹" : item.done ? "✓" : "▶"}
+          </button>
+          <div class="flex-1 min-w-0">
+            <div class="text-sm font-medium text-gray-700 truncate">${esc(item.title)}</div>
+            <div class="text-xs text-gray-400">Est: ${item.estMins}min</div>
+          </div>
+          <div class="text-right flex-shrink-0">
+            <div id="agenda-elapsed-${i}" class="text-sm font-mono font-semibold ${overBudget ? "text-red-600" : "text-gray-700"}">${actualMin}:${actualS.toString().padStart(2,"0")}</div>
+            <div id="agenda-cost-${i}" class="text-xs text-rose-600 font-semibold">$${cost.toFixed(2)}</div>
+          </div>
+        `;
+        list.appendChild(div);
+      });
+    }
+
+    updateBurnRateDisplay();
+    renderAgenda();
+  </script>
+</body>
+</html>
